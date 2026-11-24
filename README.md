@@ -53,6 +53,17 @@ Tras crear o cambiar los POM durante una migración, ejecute `mvn -pl :inventari
 
 ## Uso
 
+Maven resuelve los plugins en `pluginRepositories`, que es distinto de `repositories`. Declare el repositorio de plugins de Intino antes de usar el prefijo `intino`; si no se declara, `mvn intino:...` no puede encontrar el plugin aunque `release-libraries` esté en `repositories`.
+
+```xml
+<pluginRepositories>
+  <pluginRepository>
+    <id>intino-maven</id>
+    <url>https://artifactory.intino.io/artifactory/release-libraries</url>
+  </pluginRepository>
+</pluginRepositories>
+```
+
 Los convertidores y Konos se resuelven en los repositorios que declare el POM consumidor (por ejemplo, `release-libraries`). Las versiones se dejan explícitas para no acoplar el plugin a una versión de Intino.
 
 ```xml
@@ -89,6 +100,12 @@ Maven necesita un `pom.xml` para poder ejecutar un plugin. Si el proyecto todav�
       <url>https://artifactory.intino.io/artifactory/release-libraries</url>
     </repository>
   </repositories>
+  <pluginRepositories>
+    <pluginRepository>
+      <id>intino-maven</id>
+      <url>https://artifactory.intino.io/artifactory/release-libraries</url>
+    </pluginRepository>
+  </pluginRepositories>
   <build><plugins><plugin>
     <groupId>io.intino</groupId>
     <artifactId>intino-maven-plugin</artifactId>
