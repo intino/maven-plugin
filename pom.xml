@@ -8,6 +8,19 @@
   <packaging>maven-plugin</packaging>
   <name>Intino Maven Plugin</name>
 
+  <distributionManagement>
+    <repository>
+      <id>intino-maven</id>
+      <name>Intino Artifactory</name>
+      <url>https://artifactory.intino.io/artifactory/release-libraries</url>
+    </repository>
+    <snapshotRepository>
+      <id>intino-maven</id>
+      <name>Intino Artifactory</name>
+      <url>https://artifactory.intino.io/artifactory/snapshot-libraries</url>
+    </snapshotRepository>
+  </distributionManagement>
+
   <properties>
     <maven.compiler.release>17</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>

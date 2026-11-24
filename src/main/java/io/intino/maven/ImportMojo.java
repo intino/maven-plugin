@@ -33,8 +33,8 @@ import java.util.jar.JarFile;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Regenerates Maven metadata from each artifact.legio before dependencies are resolved. */
-@Mojo(name = "import", defaultPhase = LifecyclePhase.INITIALIZE, aggregator = true, threadSafe = true)
+/** Regenerates Maven metadata for this server module and its declared UI siblings. */
+@Mojo(name = "import", defaultPhase = LifecyclePhase.INITIALIZE, threadSafe = true)
 public final class ImportMojo extends AbstractMojo {
 	private static final Pattern WEB_ARTIFACT = Pattern.compile("WebArtifact\\(\\s*\\\"([^\\\"]+)\\\"\\s*,\\s*\\\"([^\\\"]+)\\\"\\s*,\\s*\\\"([^\\\"]+)\\\"\\s*\\)\\s*([^\\s]+)");
 	private static final Pattern UI_SERVICE = Pattern.compile("(?m)^\\s*Service(?:\\([^\\r\\n]*\\))?\\s+([A-Za-z][A-Za-z0-9_]*)\\s+(?:as|is)\\s+UI\\b");
@@ -105,9 +105,9 @@ public final class ImportMojo extends AbstractMojo {
 	}
 
 	private void scan(Path directory) throws MojoExecutionException {
-		try (var paths = Files.walk(directory)) {
-			for (Path legio : paths.filter(path -> path.getFileName().toString().endsWith(".legio")).toList()) convert(legio);
-		} catch (IOException exception) { throw new MojoExecutionException("Cannot scan " + directory, exception); }
+		Path legio = directory.resolve("artifact.legio");
+		if (Files.isRegularFile(legio)) convert(legio);
+		else getLog().debug("No artifact.legio found in module " + directory);
 	}
 
 	private void convert(Path legio) throws MojoExecutionException {
@@ -141,19 +141,38 @@ public final class ImportMojo extends AbstractMojo {
 			if (model.getBuild() == null) model.setBuild(new org.apache.maven.model.Build());
 			configureBuildOutput(model.getBuild(), model.getArtifactId());
 			Plugin plugin = model.getBuild().getPlugins().stream()
-				.filter(candidate -> "io.intino".equals(candidate.getGroupId()) && "intino-maven-plugin".equals(candidate.getArtifactId()))
+				.filter(candidate -> "io.intino".equals(candidate.getGroupId()) &&
+					("intino-maven-plugin".equals(candidate.getArtifactId()) || "intino-maven".equals(candidate.getArtifactId())))
 				.findFirst().orElseGet(() -> { var created = new Plugin(); model.getBuild().addPlugin(created); return created; });
 			plugin.setGroupId("io.intino");
 			plugin.setArtifactId("intino-maven-plugin");
 			plugin.setVersion(intinoMavenVersion);
 			plugin.setConfiguration(configuration(legio));
+			migrateLifecycleGoals(plugin);
 			if (plugin.getExecutions().isEmpty()) {
 				var execution = new PluginExecution();
-				execution.addGoal("import"); execution.addGoal("export"); execution.addGoal("compile");
+				execution.addGoal("import"); execution.addGoal("export"); execution.addGoal("generate");
 				plugin.addExecution(execution);
 			}
+			ensurePackageExecution(plugin);
 			try (Writer output = Files.newBufferedWriter(pom)) { new MavenXpp3Writer().write(output, model); }
 		} catch (Exception exception) { throw new MojoExecutionException("Cannot add intino-maven-plugin to " + pom, exception); }
+	}
+
+	private void migrateLifecycleGoals(Plugin plugin) {
+		for (PluginExecution execution : plugin.getExecutions()) {
+			if (execution.getGoals().remove("compile") && !execution.getGoals().contains("generate")) execution.addGoal("generate");
+			if (execution.getGoals().remove("package") && !execution.getGoals().contains("package-ui")) execution.addGoal("package-ui");
+		}
+	}
+
+	private void ensurePackageExecution(Plugin plugin) {
+		if (plugin.getExecutions().stream().anyMatch(execution -> execution.getGoals().contains("package-ui"))) return;
+		var execution = new PluginExecution();
+		execution.setId("intino-package-ui");
+		execution.setPhase("prepare-package");
+		execution.addGoal("package-ui");
+		plugin.addExecution(execution);
 	}
 
 	private void configureBuildOutput(org.apache.maven.model.Build build, String artifactId) {
