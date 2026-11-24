@@ -11,7 +11,7 @@ Plugin Maven que sustituye las operaciones del plugin de Intino:
 | `intino:package` | `package` | Ejecuta el ciclo Maven hasta `package`: compila Java, genera la UI y crea el JAR. |
 | `intino:release` | `deploy` | Ejecuta el ciclo Maven completo hasta `deploy` y publica el proyecto Maven actual. |
 
-`initialize` es la fase más temprana útil. Para una migración de un reactor, ejecute primero `mvn io.intino:intino-maven-plugin:1.0.0-SNAPSHOT:import` desde cada módulo (o con `-pl`); Maven ya ha leído los POM del reactor antes de ejecutar cualquier fase, por lo que los POM recién creados no pueden incorporarse al mismo reactor.
+`initialize` es la fase más temprana útil. Para una migración de un reactor, ejecute primero `mvn io.intino:intino-maven-plugin:1.0.0:import` desde cada módulo (o con `-pl`); Maven ya ha leído los POM del reactor antes de ejecutar cualquier fase, por lo que los POM recién creados no pueden incorporarse al mismo reactor.
 
 ## Varios módulos servidores
 
@@ -59,7 +59,7 @@ Los convertidores y Konos se resuelven en los repositorios que declare el POM co
 <plugin>
   <groupId>io.intino</groupId>
   <artifactId>intino-maven-plugin</artifactId>
-  <version>1.0.0-SNAPSHOT</version>
+  <version>1.0.0</version>
   <configuration>
     <legio2mavenVersion>1.2.6</legio2mavenVersion>
     <legio2packagejsonVersion>1.3.5</legio2packagejsonVersion>
@@ -92,7 +92,7 @@ Maven necesita un `pom.xml` para poder ejecutar un plugin. Si el proyecto todav�
   <build><plugins><plugin>
     <groupId>io.intino</groupId>
     <artifactId>intino-maven-plugin</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+    <version>1.0.0</version>
     <configuration>
       <legio2mavenVersion>1.2.6</legio2mavenVersion>
       <legio2packagejsonVersion>1.3.5</legio2packagejsonVersion>
