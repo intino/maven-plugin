@@ -121,9 +121,11 @@ Maven necesita un `pom.xml` para poder ejecutar un plugin. Si el proyecto todav�
 
 Instale antes el plugin localmente (`cd intino-maven-plugin && mvn install`) o publique una versión no-SNAPSHOT en su repositorio Maven. Después ejecute `mvn intino:import`. El conversor reemplaza el POM temporal por el POM migrado, conserva cada `.legio` y mantiene en el POM generado la misma versión de `intino-maven-plugin` indicada en la primera migración. Es la fuente de verdad y en cada importación se regenera el `pom.xml` o el `package.json`. Revise los cambios en Git antes de continuar con `mvn compile`.
 
-## Distribuir el plugin en Artifactory Intino
+## Distribuir el plugin
 
-El propio plugin se publica en Artifactory Intino: las versiones normales van a `release-libraries` y las terminadas en `-SNAPSHOT` a `snapshot-libraries`. Configure las credenciales bajo el servidor `intino-maven` en `~/.m2/settings.xml` y, desde el directorio del plugin, ejecute:
+El plugin usa el mecanismo estándar `distributionManagement` de Maven, por lo que puede publicarse en cualquier Artifactory o repositorio Maven compatible. Configure en el `pom.xml` el repositorio de releases y, si procede, el de snapshots; el identificador (`id`) debe coincidir con una entrada de `~/.m2/settings.xml` que contenga las credenciales.
+
+El POM de este proyecto incluye Artifactory Intino como configuración inicial (`release-libraries` y `snapshot-libraries` bajo el servidor `intino-maven`), pero se puede sustituir por el Artifactory que corresponda. Desde el directorio del plugin, ejecute:
 
 ```bash
 mvn intino:release
