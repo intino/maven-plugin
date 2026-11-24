@@ -53,7 +53,7 @@ Tras crear o cambiar los POM durante una migración, ejecute `mvn -pl :inventari
 
 ## Uso
 
-Maven resuelve los plugins en `pluginRepositories`, que es distinto de `repositories`. Declare el repositorio de plugins de Intino antes de usar el prefijo `intino`; si no se declara, `mvn intino:...` no puede encontrar el plugin aunque `release-libraries` esté en `repositories`.
+Maven resuelve los plugins en `pluginRepositories`, que es distinto de `repositories`. Declare el repositorio de plugins de Intino antes de usar el prefijo `intino`; si no se declara, `mvn intino:...` no puede encontrar el plugin aunque `release-libraries` esté en `repositories`. El POM generado por `intino:import` añade este repositorio automáticamente, pero el POM temporal de la primera migración debe declararlo para poder resolver el plugin por primera vez.
 
 ```xml
 <pluginRepositories>
@@ -96,7 +96,7 @@ Maven necesita un `pom.xml` para poder ejecutar un plugin. Si el proyecto todav�
   <version>1.0.0</version>
   <repositories>
     <repository>
-      <id>intino-release-libraries</id>
+      <id>intino-maven</id>
       <url>https://artifactory.intino.io/artifactory/release-libraries</url>
     </repository>
   </repositories>
@@ -119,7 +119,7 @@ Maven necesita un `pom.xml` para poder ejecutar un plugin. Si el proyecto todav�
 </project>
 ```
 
-Instale antes el plugin localmente (`cd intino-maven-plugin && mvn install`) o publique una versión no-SNAPSHOT en su repositorio Maven. Después ejecute `mvn intino:import`. El conversor reemplaza el POM temporal por el POM migrado, pero conserva cada `.legio`: es la fuente de verdad y en cada importación se regenera el `pom.xml` o el `package.json`. Revise los cambios en Git antes de continuar con `mvn compile`.
+Instale antes el plugin localmente (`cd intino-maven-plugin && mvn install`) o publique una versión no-SNAPSHOT en su repositorio Maven. Después ejecute `mvn intino:import`. El conversor reemplaza el POM temporal por el POM migrado, conserva cada `.legio` y mantiene en el POM generado la misma versión de `intino-maven-plugin` indicada en la primera migración. Es la fuente de verdad y en cada importación se regenera el `pom.xml` o el `package.json`. Revise los cambios en Git antes de continuar con `mvn compile`.
 
 ## Distribuir el plugin en Artifactory Intino
 

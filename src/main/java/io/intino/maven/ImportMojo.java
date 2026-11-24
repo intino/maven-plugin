@@ -4,6 +4,7 @@ import org.apache.maven.artifact.Artifact;
 import org.apache.maven.artifact.repository.ArtifactRepository;
 import org.apache.maven.artifact.resolver.ArtifactResolutionRequest;
 import org.apache.maven.plugin.AbstractMojo;
+import org.apache.maven.plugin.MojoExecution;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugins.annotations.Component;
 import org.apache.maven.plugins.annotations.LifecyclePhase;
@@ -12,6 +13,7 @@ import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.repository.RepositorySystem;
 import org.apache.maven.model.Plugin;
 import org.apache.maven.model.PluginExecution;
+import org.apache.maven.model.Repository;
 import org.apache.maven.model.io.xpp3.MavenXpp3Reader;
 import org.apache.maven.model.io.xpp3.MavenXpp3Writer;
 import org.codehaus.plexus.util.xml.Xpp3Dom;
@@ -41,6 +43,8 @@ public final class ImportMojo extends AbstractMojo {
 	private static final Pattern GENERATION_PACKAGE = Pattern.compile("(?s)Builder.*?generationPackage\\s*=\\s*\\\"([^\\\"]+)\\\"");
 	private static final Pattern PARAMETER = Pattern.compile("Parameter\\s*\\(\\s*\\\"([^\\\"]+)\\\"\\s*\\)");
 	private static final Pattern IDEA_OUTPUT = Pattern.compile("<output\\s+url=\\\"file://\\$PROJECT_DIR\\$/([^\\\"]+)\\\"");
+	private static final String INTINO_PLUGIN_REPOSITORY_ID = "intino-maven";
+	private static final String INTINO_PLUGIN_REPOSITORY_URL = "https://artifactory.intino.io/artifactory/release-libraries";
 
 	/** Optional extra legacy client module, in addition to modules inferred from Service as UI. */
 	@Parameter
@@ -59,8 +63,11 @@ public final class ImportMojo extends AbstractMojo {
 	private String legio2packagejsonVersion;
 	@Parameter(required = true)
 	private String intinoBuilderVersion;
-	@Parameter(defaultValue = "1.0.0-SNAPSHOT")
+	/** Optional override; by default the version of the plugin executing this import is retained. */
+	@Parameter
 	private String intinoMavenVersion;
+	@Parameter(defaultValue = "${mojoExecution}", readonly = true, required = true)
+	private MojoExecution mojoExecution;
 	@Parameter(defaultValue = "21")
 	private String javaVersion;
 	@Parameter(defaultValue = "${localRepository}", readonly = true, required = true)
@@ -138,6 +145,7 @@ public final class ImportMojo extends AbstractMojo {
 			var model = new MavenXpp3Reader().read(input);
 			if (model.getProperties() == null) model.setProperties(new Properties());
 			model.getProperties().putIfAbsent("maven.compiler.release", javaVersion);
+			configurePluginRepository(model);
 			if (model.getBuild() == null) model.setBuild(new org.apache.maven.model.Build());
 			configureBuildOutput(model.getBuild(), model.getArtifactId());
 			Plugin plugin = model.getBuild().getPlugins().stream()
@@ -146,7 +154,7 @@ public final class ImportMojo extends AbstractMojo {
 				.findFirst().orElseGet(() -> { var created = new Plugin(); model.getBuild().addPlugin(created); return created; });
 			plugin.setGroupId("io.intino");
 			plugin.setArtifactId("intino-maven-plugin");
-			plugin.setVersion(intinoMavenVersion);
+			plugin.setVersion(pluginVersion());
 			plugin.setConfiguration(configuration(legio));
 			migrateLifecycleGoals(plugin);
 			if (plugin.getExecutions().isEmpty()) {
@@ -157,6 +165,23 @@ public final class ImportMojo extends AbstractMojo {
 			ensurePackageExecution(plugin);
 			try (Writer output = Files.newBufferedWriter(pom)) { new MavenXpp3Writer().write(output, model); }
 		} catch (Exception exception) { throw new MojoExecutionException("Cannot add intino-maven-plugin to " + pom, exception); }
+	}
+
+	private String pluginVersion() throws MojoExecutionException {
+		if (intinoMavenVersion != null && !intinoMavenVersion.isBlank()) return intinoMavenVersion;
+		String version = mojoExecution.getVersion();
+		if (version == null || version.isBlank())
+			throw new MojoExecutionException("Cannot determine the version of intino-maven-plugin; configure intinoMavenVersion explicitly");
+		return version;
+	}
+
+	private void configurePluginRepository(org.apache.maven.model.Model model) {
+		if (model.getPluginRepositories().stream().anyMatch(repository -> INTINO_PLUGIN_REPOSITORY_ID.equals(repository.getId()))) return;
+		var repository = new Repository();
+		repository.setId(INTINO_PLUGIN_REPOSITORY_ID);
+		repository.setName("Intino Maven Plugins");
+		repository.setUrl(INTINO_PLUGIN_REPOSITORY_URL);
+		model.addPluginRepository(repository);
 	}
 
 	private void migrateLifecycleGoals(Plugin plugin) {
