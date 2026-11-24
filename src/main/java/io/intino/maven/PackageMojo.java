@@ -11,8 +11,10 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.nio.file.attribute.FileTime;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.regex.Pattern;
 
@@ -27,6 +29,8 @@ public final class PackageMojo extends AbstractMojo {
 	private File sourceDirectory;
 	@Parameter(defaultValue = "${project.build.outputDirectory}", readonly = true)
 	private File outputDirectory;
+	@Parameter(defaultValue = "${project.build.directory}", readonly = true)
+	private File buildDirectory;
 	@Parameter(property = "intino.npmExecutable", defaultValue = "npm")
 	private String npmExecutable;
 	@Parameter(property = "intino.buildScript", defaultValue = "build")
@@ -54,9 +58,11 @@ public final class PackageMojo extends AbstractMojo {
 			return;
 		}
 		Path clientOutput = webpackOutputDirectory(client);
-		if (forceUiBuild || requiresBuild(client, clientOutput)) {
+		Path fingerprint = buildDirectory.toPath().resolve("intino/ui").resolve(client.getFileName() + ".sha256");
+		if (forceUiBuild || requiresBuild(client, clientOutput, fingerprint)) {
 			getLog().info("Building client " + client);
 			ToolRunner.runCommand(List.of(npmExecutable, "run", buildScript), client);
+			writeFingerprint(client, fingerprint);
 		} else getLog().info("Client " + client + " is up to date; skipping npm run " + buildScript);
 		if (!Files.isDirectory(clientOutput))
 			throw new MojoExecutionException("Client build did not create " + clientOutput);
@@ -64,23 +70,32 @@ public final class PackageMojo extends AbstractMojo {
 		catch (IOException exception) { throw new MojoExecutionException("Cannot include UI output from " + clientOutput, exception); }
 	}
 
-	private static boolean requiresBuild(Path client, Path output) throws MojoExecutionException {
+	private static boolean requiresBuild(Path client, Path output, Path fingerprintFile) throws MojoExecutionException {
 		if (!Files.isDirectory(output)) return true;
-		try { return newest(client, true).compareTo(newest(output, false)) > 0; }
-		catch (IOException exception) { throw new MojoExecutionException("Cannot inspect client build timestamps in " + client, exception); }
+		try {
+			if (!Files.isRegularFile(fingerprintFile)) return true;
+			return !Files.readString(fingerprintFile).equals(fingerprint(client));
+		} catch (IOException exception) { throw new MojoExecutionException("Cannot inspect client build inputs in " + client, exception); }
 	}
 
-	private static FileTime newest(Path directory, boolean input) throws IOException {
-		try (var paths = Files.walk(directory)) {
-			return paths.filter(Files::isRegularFile)
-				.filter(path -> !input || isBuildInput(directory, path))
-				.map(path -> modified(path)).max(FileTime::compareTo).orElse(FileTime.fromMillis(0));
-		}
+	private static void writeFingerprint(Path client, Path fingerprintFile) throws MojoExecutionException {
+		try {
+			Files.createDirectories(fingerprintFile.getParent());
+			Files.writeString(fingerprintFile, fingerprint(client));
+		} catch (IOException exception) { throw new MojoExecutionException("Cannot save UI build fingerprint for " + client, exception); }
 	}
 
-	private static FileTime modified(Path path) {
-		try { return Files.getLastModifiedTime(path); }
-		catch (IOException exception) { throw new IllegalStateException(exception); }
+	private static String fingerprint(Path client) throws IOException, MojoExecutionException {
+		try {
+			MessageDigest digest = MessageDigest.getInstance("SHA-256");
+			try (var paths = Files.walk(client)) {
+				for (Path path : paths.filter(Files::isRegularFile).filter(path -> isBuildInput(client, path)).sorted().toList()) {
+					digest.update(client.relativize(path).toString().getBytes());
+					digest.update(Files.readAllBytes(path));
+				}
+			}
+			return HexFormat.of().formatHex(digest.digest());
+		} catch (NoSuchAlgorithmException exception) { throw new MojoExecutionException("SHA-256 is not available", exception); }
 	}
 
 	private static boolean isBuildInput(Path client, Path file) {
@@ -92,7 +107,7 @@ public final class PackageMojo extends AbstractMojo {
 		return true;
 	}
 
-	private Path webpackOutputDirectory(Path client) throws MojoExecutionException {
+	static Path webpackOutputDirectory(Path client) throws MojoExecutionException {
 		Path webpack = client.resolve("webpack.config.js");
 		try {
 			String config = Files.readString(webpack);

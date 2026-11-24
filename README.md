@@ -10,25 +10,70 @@ Plugin Maven que sustituye las operaciones del plugin de Intino:
 | `intino:compile-ui` | — (manual) | Ejecuta Konos en modo `OnlyElements`: genera únicamente los clientes hermanos declarados por `Service ... as UI`. |
 | `intino:package` | `package` | Ejecuta el ciclo Maven hasta `package`: compila Java, genera la UI y crea el JAR. |
 | `intino:release` | `deploy` | Ejecuta el ciclo Maven completo hasta `deploy` y publica el proyecto Maven actual. |
+| `intino:validate` | — (manual) | Comprueba el módulo servidor, sus modelos y los clientes UI declarados antes de compilar. |
+| `intino:init` | — (manual) | Crea un POM agregador para módulos servidores Maven ya existentes. |
 
-`initialize` es la fase más temprana útil. Para una migración de un reactor, ejecute primero `mvn io.intino:intino-maven-plugin:1.0.0:import` desde cada módulo (o con `-pl`); Maven ya ha leído los POM del reactor antes de ejecutar cualquier fase, por lo que los POM recién creados no pueden incorporarse al mismo reactor.
+`initialize` es la fase más temprana útil. Para migrar un proyecto con varios módulos, ejecute primero `mvn io.intino:intino-maven-plugin:1.0.0:import` desde cada módulo (o con `-pl`); Maven ya ha leído los POM del proyecto antes de ejecutar cualquier fase, por lo que los POM recién creados no pueden incorporarse a esa misma ejecución.
 
 ## Varios módulos servidores
 
+### Crear los POM iniciales con un script
+
+Desde la raíz de su proyecto puede descargar el script de GitHub y ejecutarlo sin clonar este repositorio:
+
+```bash
+curl -fL https://raw.githubusercontent.com/intino/maven-plugin/master/scripts/intino-init.sh -o intino-init.sh && bash intino-init.sh
+```
+
+El comando descarga `intino-init.sh` en el directorio actual y prepara los POM de ese proyecto. Para indicar otra carpeta, use `bash intino-init.sh /ruta/a/mi-proyecto`. También puede ejecutar el script desde una copia local del repositorio:
+
+```bash
+bash /ruta/a/intino-maven-plugin/scripts/intino-init.sh /ruta/a/mi-proyecto
+```
+
+También puede copiar `scripts/intino-init.sh` al proyecto y ejecutarlo allí con `bash intino-init.sh`. Solo crea los POM iniciales: no ejecuta `import`, npm, compilación ni publicación. Conserva los POM existentes. Si falta el POM raíz, detecta los módulos servidores hijos; si existe, usa su lista `<modules>`. Los clientes con `WebImports` no se incluyen como módulos Maven.
+
+El script configura automáticamente el repositorio de plugins mediante un POM temporal y usa `intino:init` para leer la versión de Konos de cada `artifact.legio`. La versión predeterminada del plugin es `1.0.0`; puede elegir otra con `INTINO_PLUGIN_VERSION=1.0.1 bash intino-init.sh`. Esa versión debe estar publicada con el goal `init` o instalada en su repositorio Maven local. Requiere Bash, Maven y Java.
+
+### Configuración manual alternativa
+
 `intino:import` no es agregador: se ejecuta una vez por cada módulo Maven servidor. Solo procesa el `artifact.legio` situado en el directorio de ese módulo y los clientes hermanos declarados por sus `Service ... as UI`; nunca recorre los módulos hijos del POM raíz.
 
-Declare los servidores en un reactor Maven. Los clientes no necesitan ser módulos Maven, pues el plugin los localiza como directorios hermanos del servidor.
+Los proyectos con `packaging=pom` se omiten en `intino:import`, sin exigir versiones de Konos ni de los conversores en el agregador. Puede ejecutar `mvn intino:import` desde la raíz para importar los servidores del proyecto con varios módulos; la raíz se omite automáticamente.
+
+Cree este `pom.xml` en la raíz del proyecto, junto a `project.legio`, y adapte las coordenadas y los nombres de los módulos. Declare solo los servidores en `<modules>`; los clientes se localizan como directorios hermanos de cada servidor. Un servidor sin parte cliente también puede incluirse.
 
 ```xml
-<project>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
   <modelVersion>4.0.0</modelVersion>
+  <groupId>com.monentia.cardio</groupId>
+  <artifactId>marco-referencia</artifactId>
+  <version>1.0.0</version>
   <packaging>pom</packaging>
   <modules>
     <module>inventario</module>
     <module>facturacion</module>
   </modules>
+  <pluginRepositories>
+    <pluginRepository>
+      <id>intino-maven</id>
+      <url>https://artifactory.intino.io/artifactory/release-libraries</url>
+    </pluginRepository>
+  </pluginRepositories>
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>io.intino</groupId>
+        <artifactId>intino-maven-plugin</artifactId>
+        <version>1.0.0</version>
+        <inherited>false</inherited>
+      </plugin>
+    </plugins>
+  </build>
 </project>
 ```
+
+La declaración del plugin en la raíz permite usar el prefijo `intino` desde ese directorio. `pluginRepositories` indica dónde descargarlo. Las declaraciones de los módulos servidores se generan por separado; no añada ejecuciones de generación al POM agregador.
 
 Configure el plugin en cada POM servidor —o en un padre, dentro de `pluginManagement`, para compartir la versión y la configuración—. Para procesarlos todos desde la raíz, use el ciclo Maven normal:
 
@@ -49,7 +94,38 @@ mvn -pl :inventario,:facturacion intino:package
 mvn -pl :inventario -am intino:package
 ```
 
-Tras crear o cambiar los POM durante una migración, ejecute `mvn -pl :inventario,:facturacion intino:import` una vez para regenerarlos y después recargue el reactor en IntelliJ.
+Tras crear o cambiar los POM durante una migración, ejecute `mvn -pl :inventario,:facturacion intino:import` una vez para regenerarlos y después recargue el proyecto con varios módulos en IntelliJ.
+
+Si los POM de los módulos ya existen y falta únicamente el agregador en la raíz, puede crearlo sin POM previo mediante la coordenada completa del plugin:
+
+```bash
+mvn io.intino:intino-maven-plugin:1.0.0:init
+```
+
+Si no existe POM raíz, detecta los servidores hijos con `artifact.legio` y crea el agregador y los POM iniciales que falten. Si ya existe un POM raíz con `<modules>`, lee esa lista y conserva el agregador y todos los POM existentes. Excluye los artefactos cliente con `WebImports`.
+
+Cada POM inicial incluye `repositories`, `pluginRepositories` y la versión del plugin que ejecuta `init`. La versión del builder se obtiene del `Dsl(name="Konos", version="...")` del `artifact.legio` de cada módulo. Si falta esa declaración, informa del error sin inventar una versión. Las versiones iniciales de los conversores se pueden ajustar con `-Dintino.legio2mavenVersion=...` y `-Dintino.legio2packagejsonVersion=...`.
+
+Si el POM raíz declara módulos cuyos POM aún no existen, inicialice sin recorrer los módulos del proyecto y después mígrelos:
+
+```bash
+mvn -N intino:init
+mvn -pl :inventario,:facturacion intino:import
+```
+
+`-N` (`--non-recursive`) hace que Maven cargue únicamente el proyecto raíz. Es necesario en esta primera inicialización porque, sin él, Maven intentaría cargar los POM de los módulos antes de ejecutar `init` y fallaría si todavía no existen. `init` lee la lista `<modules>` por su cuenta y crea los POM que faltan.
+
+Una vez creados esos POM, deje de usar `-N` para importar, compilar o empaquetar los módulos: de lo contrario Maven ejecutaría únicamente el proyecto raíz. Use `-pl` para seleccionar servidores o el ciclo Maven sin selectores para procesar todo el proyecto con varios módulos:
+
+```bash
+mvn -pl :inventario,:facturacion intino:import
+mvn -pl :inventario intino:compile
+mvn package
+```
+
+Si aparece `No plugin found for prefix 'intino'`, compruebe que el POM raíz contiene tanto la declaración del plugin como `pluginRepositories`, tal y como muestra el ejemplo. También puede invocar `mvn -N io.intino:intino-maven-plugin:1.0.0:init` para evitar la búsqueda por prefijo; esta alternativa sigue necesitando que el plugin esté instalado localmente o disponible en un repositorio de plugins configurado.
+
+Los POM iniciales sirven para ejecutar `import`; las coordenadas y la configuración definitivas se generan desde Legio en la importación. Para usar `init` sin ningún POM, el plugin debe estar instalado localmente o disponible mediante un repositorio de plugins configurado en `settings.xml`.
 
 ## Uso
 
@@ -133,7 +209,7 @@ mvn intino:release
 
 Para reconstruir desde cero antes de publicar, use `mvn clean intino:release`. El goal ejecuta las fases Maven hasta `deploy` para el proyecto Maven desde el que se invoca. Al usarlo en `intino-maven-plugin` publica el plugin; al usarlo en un módulo Intino migrado, publica ese módulo.
 
-En los proyectos migrados, el goal interno `intino:package-ui` queda asociado a `prepare-package`. Antes de crear el JAR evalúa si hace falta generar cada `Service ... as UI`: compara sus fuentes con el contenido de `output.path` de `webpack.config.js` y solo ejecuta `npm run build` si hay cambios. Después copia el directorio resultante completo bajo `www` en el directorio de clases del servidor. Por ejemplo, un `output.path` acabado en `www/inventario-elements` se incorpora como `www/inventario-elements/...` al JAR. Puede adaptar el comando con `-Dintino.npmExecutable=pnpm` o `-Dintino.buildScript=build:production`; use `-Dintino.forceUiBuild=true` para forzar la regeneración.
+En los proyectos migrados, el goal interno `intino:package-ui` queda asociado a `prepare-package`. Antes de crear el JAR calcula una huella SHA-256 de las entradas relevantes de cada `Service ... as UI` (`src`, `gen`, `res`, `package.json`, `webpack.config.js` y WebArtifacts, excluyendo `node_modules`, `.git`, `target` y `out`) y solo ejecuta `npm run build` cuando esa huella cambia. Después copia el directorio resultante completo bajo `www` en el directorio de clases del servidor. Por ejemplo, un `output.path` acabado en `www/inventario-elements` se incorpora como `www/inventario-elements/...` al JAR. Puede adaptar el comando con `-Dintino.npmExecutable=pnpm` o `-Dintino.buildScript=build:production`; use `-Dintino.forceUiBuild=true` para forzar la regeneración.
 
 El importador revisa el módulo Maven y busca `Service Nombre as UI` o `Service Nombre is UI` en sus `.konos` y `.tara`. Cada nombre se convierte a kebab-case para encontrar el cliente hermano: por ejemplo, `InventarioElements` resuelve `${project.basedir}/../inventario-elements`. `legioDirectory` permite añadir un cliente fuera de esa convención. Reconoce `WebImports` como módulo cliente y extrae cada línea de la forma `WebArtifact("group", "artifact", "version") nombre` en `node_modules/nombre`. Los artefactos se resuelven usando los repositorios Maven declarados por el consumidor. Los `.legio` nunca se eliminan.
 
@@ -168,6 +244,8 @@ Para que **Build** o **Rebuild** ejecute también los goals de este plugin, conf
 
 Con esa opción activa, al reconstruir el módulo IntelliJ invoca Maven. La fase `compile` ejecuta previamente `initialize`, `generate-sources` y `process-sources`, por lo que lanza `intino:import`, `intino:export` e `intino:generate` antes de compilar Java. Para ejecutar solo la importación desde la terminal, use `mvn initialize`.
 
-Los goals directos aparecen en la ventana **Maven**, dentro de **Plugins > intino**: `import`, `export`, `compile`, `compile-ui`, `package`, `release` y `resolve-web-artifacts`. Si el módulo se creó después de abrir IntelliJ, haga clic derecho sobre su `pom.xml` y elija **Add as Maven Project**; después use **Reload All Maven Projects**. Entonces podrá lanzar `intino:compile`, `intino:compile-ui`, `intino:package` o `intino:release` con doble clic desde esa vista.
+Los goals directos aparecen en la ventana **Maven**, dentro de **Plugins > intino**: `import`, `export`, `compile`, `compile-ui`, `package`, `release`, `validate`, `init` y `resolve-web-artifacts`. Si el módulo se creó después de abrir IntelliJ, haga clic derecho sobre su `pom.xml` y elija **Add as Maven Project**; después use **Reload All Maven Projects**. Entonces podrá lanzar `intino:compile`, `intino:compile-ui`, `intino:package`, `intino:validate` o `intino:release` con doble clic desde esa vista.
+
+Antes de una compilación o de una migración, ejecute `mvn intino:validate` para detectar un `artifact.legio`, directorio `src`, cliente UI, `package.json` o `webpack.config.js` ausente. También aparece como goal directo en IntelliJ.
 
 Para actualizar únicamente el código generado de los paquetes web, ejecute `mvn intino:compile-ui`. Invoca Konos con `compilation.mode=OnlyElements`, sin compilar Java ni ejecutar npm. Konos resuelve cada `Service InventarioElements as UI` en el directorio hermano `../inventario-elements`.

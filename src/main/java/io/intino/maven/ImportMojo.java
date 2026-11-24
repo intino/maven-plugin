@@ -51,17 +51,19 @@ public final class ImportMojo extends AbstractMojo {
 	private File legioDirectory;
 	@Parameter(defaultValue = "${project.basedir}", readonly = true)
 	private File projectDirectory;
+	@Parameter(defaultValue = "${project.packaging}", readonly = true)
+	private String packaging;
 	@Parameter(defaultValue = "${project.build.directory}", readonly = true)
 	private File buildDirectory;
 	@Parameter(defaultValue = "${project.basedir}/../project.legio")
 	private File projectFile;
 	@Parameter
 	private File credentialsFile;
-	@Parameter(required = true)
+	@Parameter
 	private String legio2mavenVersion;
-	@Parameter(required = true)
+	@Parameter
 	private String legio2packagejsonVersion;
-	@Parameter(required = true)
+	@Parameter
 	private String intinoBuilderVersion;
 	/** Optional override; by default the version of the plugin executing this import is retained. */
 	@Parameter
@@ -78,11 +80,22 @@ public final class ImportMojo extends AbstractMojo {
 	private RepositorySystem repositorySystem;
 
 	@Override public void execute() throws MojoExecutionException {
+		if ("pom".equals(packaging)) {
+			getLog().info("Skipping Intino import for aggregator " + projectDirectory);
+			return;
+		}
+		requireVersion("legio2mavenVersion", legio2mavenVersion);
+		requireVersion("legio2packagejsonVersion", legio2packagejsonVersion);
+		requireVersion("intinoBuilderVersion", intinoBuilderVersion);
 		scan(projectDirectory.toPath());
 		for (Path client : clientDirectories()) {
 			if (Files.isDirectory(client)) scan(client);
 			else getLog().info("No client module found at " + client + "; skipping client import");
 		}
+	}
+
+	private static void requireVersion(String name, String value) throws MojoExecutionException {
+		if (value == null || value.isBlank()) throw new MojoExecutionException("Missing plugin configuration parameter: " + name);
 	}
 
 	private List<Path> clientDirectories() throws MojoExecutionException {
