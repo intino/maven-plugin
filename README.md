@@ -10,6 +10,7 @@ Plugin Maven que sustituye las operaciones del plugin de Intino:
 | `intino:compile-ui` | — (manual) | Ejecuta Konos en modo `OnlyElements`: genera únicamente los clientes hermanos declarados por `Service ... as UI`. |
 | `intino:package` | `package` | Ejecuta el ciclo Maven hasta `package`: compila Java, genera la UI y crea el JAR. |
 | `intino:release` | `deploy` | Ejecuta el ciclo Maven completo hasta `deploy` y publica el proyecto Maven actual. |
+| `intino:release-ui` | — (manual) | Empaqueta y publica únicamente los clientes UI en el repositorio configurado en el servidor. |
 | `intino:validate` | — (manual) | Comprueba el módulo servidor, sus modelos y los clientes UI declarados antes de compilar. |
 | `intino:init` | — (manual) | Crea un POM agregador para módulos servidores Maven ya existentes. |
 
@@ -198,6 +199,39 @@ Maven necesita un `pom.xml` para poder ejecutar un plugin. Si el proyecto todav�
 Instale antes el plugin localmente (`cd intino-maven-plugin && mvn install`) o publique una versión no-SNAPSHOT en su repositorio Maven. Después ejecute `mvn intino:import`. El conversor reemplaza el POM temporal por el POM migrado, conserva cada `.legio` y mantiene en el POM generado la misma versión de `intino-maven-plugin` indicada en la primera migración. Es la fuente de verdad y en cada importación se regenera el `pom.xml` o el `package.json`. Revise los cambios en Git antes de continuar con `mvn compile`.
 
 ## Distribuir el plugin
+
+### Distribuir las partes cliente
+
+Desde el módulo servidor puede empaquetar y distribuir todos sus clientes UI sin indicar rutas:
+
+```bash
+mvn intino:release-ui
+```
+
+Desde la raíz de un proyecto con varios módulos, seleccione el servidor:
+
+```bash
+mvn -pl :inventario intino:release-ui
+```
+
+El goal detecta los `Service ... as UI`, ejecuta el build npm solo si es necesario, genera los JAR principal y `-sources` y sus POM, y los publica mediante Maven. Usa el `distributionManagement` del servidor y las credenciales de `settings.xml`; conserva los archivos de settings personalizados (`-s`, `-gs`) y el repositorio local de la sesión. Las versiones `-SNAPSHOT` usan el repositorio de snapshots según las reglas de Maven. No compila Java ni publica el artefacto servidor. En el POM agregador se omite automáticamente. Si varios clientes se publican y falla uno posterior, las publicaciones anteriores no se revierten.
+
+Requiere `mvn` en PATH; puede configurar otro ejecutable con `-Dintino.mavenExecutable=/ruta/a/mvn`. El goal también aparece en **Maven > Plugins > intino > release-ui** en IntelliJ tras recargar el proyecto.
+
+Al empaquetar un servidor, `intino:package-ui` también prepara cada cliente declarado como `Service ... as UI` como artefacto Maven independiente. Sus coordenadas (`groupId`, nombre y versión) se leen de su propio `artifact.legio`.
+
+En `${project.build.directory}/intino/clients/<cliente>/` se genera un `pom.xml` y, dentro de `target/`, `<artifactId>-<version>.jar` y `<artifactId>-<version>-sources.jar`. Ambos JAR contienen únicamente `src/`, `gen/`, `res/`, `package.json` y los metadatos `META-INF/MANIFEST.MF` y `META-INF/maven/...`. No se genera Javadoc.
+
+El POM cliente copia el `distributionManagement` del servidor. Para instalar o publicar el cliente por separado, utilice la ruta del POM que imprime el empaquetado:
+
+```bash
+mvn -f /ruta/al/build/intino/clients/inventario-elements/pom.xml install
+mvn -f /ruta/al/build/intino/clients/inventario-elements/pom.xml deploy
+```
+
+Maven empaqueta y publica el JAR principal, el `-sources.jar` y el POM con las coordenadas del cliente. Las credenciales se configuran en `settings.xml` para el identificador del repositorio de distribución. El empaquetado del servidor prepara estos artefactos locales; `intino:release-ui` realiza su empaquetado y publicación en un único comando. Los comandos con `-f` siguen disponibles como alternativa manual.
+
+### Publicar el propio plugin
 
 El plugin usa el mecanismo estándar `distributionManagement` de Maven, por lo que puede publicarse en cualquier Artifactory o repositorio Maven compatible. Configure en el `pom.xml` el repositorio de releases y, si procede, el de snapshots; el identificador (`id`) debe coincidir con una entrada de `~/.m2/settings.xml` que contenga las credenciales.
 

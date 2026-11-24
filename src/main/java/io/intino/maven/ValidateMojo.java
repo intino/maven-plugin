@@ -18,10 +18,16 @@ import java.util.List;
 public final class ValidateMojo extends AbstractMojo {
 	@Parameter(defaultValue = "${project.basedir}", readonly = true)
 	private File projectDirectory;
+	@Parameter(defaultValue = "${project.packaging}", readonly = true)
+	private String packaging;
 	@Parameter(defaultValue = "${project.basedir}/src", readonly = true)
 	private File sourceDirectory;
 
 	@Override public void execute() throws MojoExecutionException, MojoFailureException {
+		if ("pom".equals(packaging)) {
+			getLog().info("Omitiendo validación de servidor en el proyecto raíz " + projectDirectory);
+			return;
+		}
 		var errors = new ArrayList<String>();
 		Path module = projectDirectory.toPath();
 		if (!Files.isRegularFile(module.resolve("artifact.legio"))) errors.add("Missing artifact.legio in " + module);

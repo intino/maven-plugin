@@ -5,6 +5,7 @@ import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugins.annotations.LifecyclePhase;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
+import org.apache.maven.project.MavenProject;
 
 import java.io.File;
 import java.io.IOException;
@@ -20,7 +21,7 @@ import java.util.regex.Pattern;
 
 /** Builds declared Web UI siblings and includes their www output in the server JAR. */
 @Mojo(name = "package-ui", defaultPhase = LifecyclePhase.PREPARE_PACKAGE, threadSafe = true)
-public final class PackageMojo extends AbstractMojo {
+public class PackageMojo extends AbstractMojo {
 	private static final Pattern WEBPACK_OUTPUT_PATH = Pattern.compile("(?s)output\\s*:\\s*\\{.*?\\bpath\\s*:\\s*[\\\"']([^\\\"']+)[\\\"']");
 	private static final Pattern WEBPACK_RESOLVED_OUTPUT_PATH = Pattern.compile("(?s)output\\s*:\\s*\\{.*?\\bpath\\s*:\\s*path\\.resolve\\(\\s*__dirname\\s*,\\s*[\\\"']([^\\\"']+)[\\\"']\\s*\\)");
 	@Parameter(defaultValue = "${project.basedir}", readonly = true)
@@ -31,6 +32,8 @@ public final class PackageMojo extends AbstractMojo {
 	private File outputDirectory;
 	@Parameter(defaultValue = "${project.build.directory}", readonly = true)
 	private File buildDirectory;
+	@Parameter(defaultValue = "${project}", readonly = true, required = true)
+	private MavenProject project;
 	@Parameter(property = "intino.npmExecutable", defaultValue = "npm")
 	private String npmExecutable;
 	@Parameter(property = "intino.buildScript", defaultValue = "build")
@@ -39,7 +42,16 @@ public final class PackageMojo extends AbstractMojo {
 	private boolean forceUiBuild;
 
 	@Override public void execute() throws MojoExecutionException {
-		for (Path client : clientDirectories()) packageClient(client);
+		packageClients(true);
+	}
+
+	protected final List<Path> packageClients(boolean includeInServer) throws MojoExecutionException {
+		var poms = new ArrayList<Path>();
+		for (Path client : clientDirectories()) {
+			Path pom = packageClient(client, includeInServer);
+			if (pom != null) poms.add(pom);
+		}
+		return poms;
 	}
 
 	private List<Path> clientDirectories() throws MojoExecutionException {
@@ -52,37 +64,49 @@ public final class PackageMojo extends AbstractMojo {
 		} catch (IOException exception) { throw new MojoExecutionException("Cannot inspect UI services in " + sourceDirectory, exception); }
 	}
 
-	private void packageClient(Path client) throws MojoExecutionException {
+	private Path packageClient(Path client, boolean includeInServer) throws MojoExecutionException {
 		if (!Files.isRegularFile(client.resolve("package.json"))) {
 			getLog().info("No client package.json found at " + client + "; skipping UI package");
-			return;
+			return null;
 		}
 		Path clientOutput = webpackOutputDirectory(client);
 		Path fingerprint = buildDirectory.toPath().resolve("intino/ui").resolve(client.getFileName() + ".sha256");
 		if (forceUiBuild || requiresBuild(client, clientOutput, fingerprint)) {
 			getLog().info("Building client " + client);
 			ToolRunner.runCommand(List.of(npmExecutable, "run", buildScript), client);
+			if (!hasOutput(clientOutput)) throw new MojoExecutionException("Client build did not produce files in " + clientOutput);
 			writeFingerprint(client, fingerprint);
 		} else getLog().info("Client " + client + " is up to date; skipping npm run " + buildScript);
 		if (!Files.isDirectory(clientOutput))
 			throw new MojoExecutionException("Client build did not create " + clientOutput);
-		try { copy(clientOutput, outputDirectory.toPath().resolve("www").resolve(clientOutput.getFileName())); }
+		try { if (includeInServer) copy(clientOutput, outputDirectory.toPath().resolve("www").resolve(clientOutput.getFileName())); }
 		catch (IOException exception) { throw new MojoExecutionException("Cannot include UI output from " + clientOutput, exception); }
+		try {
+			Path pom = ClientPackage.create(client, buildDirectory.toPath().resolve("intino/clients").resolve(client.getFileName()), project.getDistributionManagement());
+			getLog().info("Cliente Maven empaquetado: " + pom + "; para distribuirlo: mvn -f \"" + pom + "\" deploy");
+			return pom;
+		} catch (IOException exception) { throw new MojoExecutionException("Cannot package client " + client, exception); }
 	}
 
-	private static boolean requiresBuild(Path client, Path output, Path fingerprintFile) throws MojoExecutionException {
-		if (!Files.isDirectory(output)) return true;
+	static boolean requiresBuild(Path client, Path output, Path fingerprintFile) throws MojoExecutionException {
+		if (!hasOutput(output)) return true;
 		try {
 			if (!Files.isRegularFile(fingerprintFile)) return true;
 			return !Files.readString(fingerprintFile).equals(fingerprint(client));
 		} catch (IOException exception) { throw new MojoExecutionException("Cannot inspect client build inputs in " + client, exception); }
 	}
 
-	private static void writeFingerprint(Path client, Path fingerprintFile) throws MojoExecutionException {
+	static void writeFingerprint(Path client, Path fingerprintFile) throws MojoExecutionException {
 		try {
 			Files.createDirectories(fingerprintFile.getParent());
 			Files.writeString(fingerprintFile, fingerprint(client));
 		} catch (IOException exception) { throw new MojoExecutionException("Cannot save UI build fingerprint for " + client, exception); }
+	}
+
+	private static boolean hasOutput(Path output) throws MojoExecutionException {
+		if (!Files.isDirectory(output)) return false;
+		try (var files = Files.walk(output)) { return files.anyMatch(Files::isRegularFile); }
+		catch (IOException exception) { throw new MojoExecutionException("Cannot inspect UI output " + output, exception); }
 	}
 
 	private static String fingerprint(Path client) throws IOException, MojoExecutionException {
